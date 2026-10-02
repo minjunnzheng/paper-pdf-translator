@@ -1,0 +1,27 @@
+{
+  "name": "paper-pdf-translator",
+  "version": "0.2.0",
+  "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面；翻譯走 Codex 訂閱、Claude 訂閱或本機模型，不需 API 金鑰。",
+  "author": {
+    "name": "minjunnzheng",
+    "url": "https://github.com/minjunnzheng"
+  },
+  "homepage": "https://github.com/minjunnzheng/paper-pdf-translator",
+  "repository": "https://github.com/minjunnzheng/paper-pdf-translator",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["pdf", "translation", "papers", "traditional-chinese", "zotero"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Paper PDF Translator",
+    "shortDescription": "把英文論文 PDF 翻成繁體中文，保留版面",
+    "longDescription": "把英文論文 PDF 翻成台灣繁體中文，圖、表、公式留在原位，可輸出只有譯文或原文與譯文並排的 PDF。翻譯請求走訂閱 CLI 或本機模型，並附術語保護、對照原文的校對與機械檢查。譯文未經人工校對。",
+    "developerName": "minjunnzheng",
+    "category": "Education & Research",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/minjunnzheng/paper-pdf-translator",
+    "defaultPrompt": [
+      "@Paper PDF Translator 把 paper.pdf 的前兩頁翻成中文給我看",
+      "@Paper PDF Translator 把這篇論文翻成原文與譯文並排的 PDF"
+    ]
+  }
+}

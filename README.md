@@ -92,6 +92,15 @@ uv run paper-translate run --attachment <PDF 附件代碼> --pages 1-2 --engine 
 | `--engine-model 名稱` | 訂閱 CLI 的模型名；Claude 預設 `sonnet`，Codex 預設用它設定檔裡的模型 |
 | `--dry-run` | 只做檢查並印出設定，不送任何翻譯請求 |
 
+## 當成 agent 外掛使用
+
+repo 內附一個薄 skill（`skills/paper-translate/`）和外掛 manifest，讓 Codex 或 Claude Code 能用一句話叫它：agent 會選對應的訂閱引擎、先試兩頁、再回報檢查結果。skill 用 `uvx` 直接從這個 repo 執行 CLI，不必先 clone。
+
+- Codex：manifest 在 `.codex-plugin/plugin.json`。把這個 repo 加成外掛市集（`codex plugin marketplace add minjunnzheng/paper-pdf-translator`）後安裝 `paper-pdf-translator`。
+- Claude Code：manifest 在 `.claude-plugin/`。`/plugin marketplace add minjunnzheng/paper-pdf-translator`，再 `/plugin install paper-pdf-translator@paper-pdf-translator`。
+
+外掛的安裝流程尚未在乾淨環境實測；CLI 本身不依賴外掛，照上面的方式直接執行即可。
+
 ## 術語檔
 
 沒有術語檔時工具照常翻譯，只是不做術語保護。要保護術語，就把 `terms.example.txt` 複製一份改成自己領域的內容：

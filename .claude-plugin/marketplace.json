@@ -1,0 +1,15 @@
+{
+  "name": "paper-pdf-translator",
+  "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面。",
+  "owner": {
+    "name": "minjunnzheng"
+  },
+  "plugins": [
+    {
+      "name": "paper-pdf-translator",
+      "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面；翻譯走訂閱 CLI 或本機模型。",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

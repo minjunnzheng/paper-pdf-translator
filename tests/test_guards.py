@@ -1,7 +1,9 @@
 """Offline checks of term protection, guards and settings. No model request is sent."""
 
+import json
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -168,6 +170,24 @@ class Codex(unittest.TestCase):
                 ["run", "--pdf", "x.pdf", "--engine", engine, "--remote-host", "host"]
             )
             self.assertEqual(code, 2)
+
+
+class Plugin(unittest.TestCase):
+    root = Path(__file__).resolve().parent.parent
+
+    def test_manifests_match_the_package(self):
+        version = tomllib.loads((self.root / "pyproject.toml").read_text())["project"][
+            "version"
+        ]
+        for folder in (".codex-plugin", ".claude-plugin"):
+            manifest = json.loads((self.root / folder / "plugin.json").read_text())
+            self.assertEqual(manifest["name"], "paper-pdf-translator")
+            self.assertEqual(manifest["version"], version)
+        market = json.loads((self.root / ".claude-plugin/marketplace.json").read_text())
+        self.assertEqual(market["plugins"][0]["source"], "./")
+        skill = (self.root / "skills/paper-translate/SKILL.md").read_text()
+        self.assertTrue(skill.startswith("---\nname: paper-translate\n"))
+        self.assertIn(f"@v{version} ", skill)
 
 
 if __name__ == "__main__":
