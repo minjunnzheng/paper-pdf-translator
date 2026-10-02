@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -229,13 +230,91 @@ def validate_review_batch(original: list[dict], revised: list[dict]) -> None:
         validate_revision(sources[row["id"]], row["output"])
 
 
+REFERENCES_HEADING = re.compile(
+    r"(\d+\.?\s*)?(references?( cited)?( and notes)?|bibliography|"
+    r"literature cited|works cited)",
+    re.IGNORECASE,
+)
+BATCH_MARKER = "## Here is the input:"
+
+
+def squash(text: str) -> str:
+    """Letters and digits only, so engine paragraphs can be matched to PDF text."""
+    text = re.sub(r"\{v\d+\}|<[^>]+>", " ", text)
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKC", text).lower())
+
+
+def reference_section(path: Path) -> dict | None:
+    """Text from the last references heading to the end of the PDF, or None."""
+    import fitz
+
+    with fitz.open(path) as document:
+        heading = None
+        for number, page in enumerate(document):
+            middle = page.rect.width / 2
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    text = " ".join(
+                        "".join(span["text"] for span in line["spans"]).split()
+                    )
+                    if REFERENCES_HEADING.fullmatch(text):
+                        heading = (number, line["bbox"][0] > middle, line["bbox"][1])
+        if heading is None:
+            return None
+        number, column, top = heading
+        page = document[number]
+        middle = page.rect.width / 2
+        parts = [
+            "".join(span["text"] for span in line["spans"])
+            for block in page.get_text("dict")["blocks"]
+            for line in block.get("lines", [])
+            if (line["bbox"][0] > middle, line["bbox"][1]) > (column, top + 1)
+        ]
+        parts += [
+            document[later].get_text("text")
+            for later in range(number + 1, document.page_count)
+        ]
+    return {
+        "heading_page": number + 1,
+        "text": squash(" ".join(parts)),
+        "skipped": set(),
+    }
+
+
+def single_paragraph(text: str) -> str:
+    """The paragraph inside the engine's single-paragraph prompt, or the text itself."""
+    marker = "Now translate the following text:"
+    return text.partition(marker)[2].strip() if marker in text else text
+
+
+def in_references(references: dict | None, text: str) -> bool:
+    if not references:
+        return False
+    plain = squash(text)
+    if len(plain) < 12:  # too short to tell; this also leaves the heading itself
+        return False
+    key = plain[len(plain) // 4 :][:40] if len(plain) > 60 else plain
+    if key not in references["text"]:
+        return False
+    references["skipped"].add(
+        plain
+    )  # a set: the engine may ask twice for one paragraph
+    return True
+
+
 def reviewing_translator(
-    settings, records: list[dict], chat=None, review: bool = True, lenient: bool = False
+    settings,
+    records: list[dict],
+    chat=None,
+    review: bool = True,
+    lenient: bool = False,
+    references: dict | None = None,
 ):
     """Engine translator with term protection and an optional proofreading pass.
 
     chat(system, user) replaces the engine's OpenAI client when given. With
     lenient, a batch that fails proofreading keeps its draft instead of aborting.
+    Paragraphs found in the references section are returned untranslated.
     """
     from pdf2zh_next.translator import get_rate_limiter
     from pdf2zh_next.translator.translator_impl.openai import OpenAITranslator
@@ -247,7 +326,7 @@ def reviewing_translator(
             record = {"source": source, "draft": draft, "batch": batch}
             try:
                 if batch:
-                    marker = "## Here is the input:"
+                    marker = BATCH_MARKER
                     if marker not in source:
                         raise ValueError("Unsupported upstream batch prompt")
                     original = json.loads(source.partition(marker)[2].strip())
@@ -354,6 +433,50 @@ def reviewing_translator(
         def do_llm_translate(self, text, rate_limit_params=None):
             if text is None:  # BabelDOC's LLM capability probe; no inference.
                 return None
+            kept = []
+            if references and BATCH_MARKER not in text:
+                # The engine's single-paragraph retry, also used for a paragraph that
+                # came back unchanged from a batch.
+                paragraph = single_paragraph(text)
+                if in_references(references, paragraph):
+                    return paragraph
+            if references and BATCH_MARKER in text:
+                head, _, body = text.partition(BATCH_MARKER)
+                try:
+                    rows = json.loads(body.strip())
+                except ValueError:
+                    rows = None
+                if isinstance(rows, list) and all(
+                    isinstance(row, dict) and isinstance(row.get("input"), str)
+                    for row in rows
+                ):
+                    kept = [
+                        {"id": row["id"], "output": row["input"]}
+                        for row in rows
+                        if in_references(references, row["input"])
+                    ]
+                    if len(kept) == len(rows):  # nothing left to send
+                        return json.dumps(kept, ensure_ascii=False)
+                    if kept:
+                        ids = {row["id"] for row in kept}
+                        rest = [row for row in rows if row["id"] not in ids]
+                        text = (
+                            head
+                            + BATCH_MARKER
+                            + "\n"
+                            + json.dumps(rest, ensure_ascii=False, indent=2)
+                        )
+            translated = self.translate_batch(text, rate_limit_params)
+            if not kept:
+                return translated
+            try:
+                merged = [*json.loads(translated), *kept]
+                merged.sort(key=lambda row: row["id"])
+            except (ValueError, TypeError, KeyError):
+                return translated  # the engine retries such a batch by paragraph
+            return json.dumps(merged, ensure_ascii=False)
+
+        def translate_batch(self, text, rate_limit_params):
             protected = protect_terms(normalize_terms(text))
             draft = restore_terms(
                 chat(ENGINE_SYSTEM, protected)
@@ -362,9 +485,12 @@ def reviewing_translator(
             )
             if not review:
                 return draft
-            return self.proofread(text, draft, batch="## Here is the input:" in text)
+            return self.proofread(text, draft, batch=BATCH_MARKER in text)
 
         def do_translate(self, text, rate_limit_params=None):
+            paragraph = single_paragraph(text)
+            if in_references(references, paragraph):
+                return paragraph
             protected = protect_terms(normalize_terms(text))
             draft = restore_terms(
                 chat(ENGINE_SYSTEM, self.prompt(protected)[0]["content"])
@@ -1040,6 +1166,7 @@ def command_run(args: argparse.Namespace) -> None:
         "temperature": None if claude else 0,
         "presence_penalty": None if claude else 0,
         "lenient_review": claude or args.lenient,
+        "translate_references": args.translate_references,
         "reasoning_effort": None,
         "qps": 1,
         "pool_max_workers": 1,
@@ -1079,7 +1206,7 @@ def command_run(args: argparse.Namespace) -> None:
     print(
         "warning: mixed scanned pages and formula completeness still need visual review"
     )
-    print("warning: references and figure text exclusion are not yet verified")
+    print("warning: figure text exclusion is not yet verified")
     if sha256(path) != before:
         raise RuntimeError("Source PDF changed during dry-run")
     if args.dry_run:
@@ -1221,10 +1348,11 @@ async def translate_pdf(
     original_regions: dict | None = None,
     chat=None,
     lenient: bool = False,
+    references: dict | None = None,
 ):
     from pdf2zh_next.high_level import do_translate_async_stream
 
-    if reviews is None and chat is None:
+    if reviews is None and chat is None and not references:
         events = do_translate_async_stream(settings, source)
     else:
         from babeldoc.format.pdf.high_level import async_translate
@@ -1247,6 +1375,7 @@ async def translate_pdf(
             chat,
             reviews is not None,
             lenient,
+            references,
         )
         events = async_translate(engine_config)
     result = None
@@ -1339,6 +1468,18 @@ def run_pdf(
                 settings = pdf_settings(config, engine_output)
 
             reviews = [] if config.get("review") else None
+            references = (
+                None
+                if config["translate_references"]
+                else reference_section(staged_source)
+            )
+            if not config["translate_references"]:
+                print(
+                    f"references: left untranslated from page {references['heading_page']}"
+                    if references
+                    else "references: no heading found; translating everything",
+                    file=sys.stderr,
+                )
             original_regions = {}
             try:
                 result = asyncio.run(
@@ -1349,6 +1490,7 @@ def run_pdf(
                         original_regions,
                         chat,
                         config["lenient_review"],
+                        references,
                     )
                 )
             except Exception as exc:
@@ -1419,6 +1561,16 @@ def run_pdf(
                 "output_file": name,
                 "output_sha256": sha256(final_pdf),
                 "original_region_preservation": region_audit,
+                "references": (
+                    "translated"
+                    if config["translate_references"]
+                    else {
+                        "heading_page": references["heading_page"],
+                        "untranslated_paragraphs": len(references["skipped"]),
+                    }
+                    if references
+                    else "no heading found; everything was translated"
+                ),
                 "quality_review": "pending",
                 "llm_review": (
                     {
@@ -1435,7 +1587,7 @@ def run_pdf(
                 "warnings": [
                     "Visual review of layout, formulas, references and omissions is required",
                     "Context completeness is unproven; server n_ctx alone does not measure BabelDOC's full prompt",
-                    "Reference exclusion is not verified in this engine",
+                    "Everything after the references heading is left untranslated, including any appendix placed there",
                 ],
             }
             if reviews is not None:
@@ -1519,6 +1671,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="publish the PDF even if a proofread batch fails its guards; the failed "
         "batch keeps its draft (always on with --engine claude or codex)",
+    )
+    run.add_argument(
+        "--translate-references",
+        action="store_true",
+        help="also translate the reference list (by default everything after the "
+        "references heading is left as it is)",
     )
     run.add_argument(
         "--bilingual", action="store_true", help="original and translation side by side"

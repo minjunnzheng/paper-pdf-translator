@@ -1,6 +1,6 @@
 {
   "name": "paper-pdf-translator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面；翻譯走 Codex 訂閱、Claude 訂閱或本機模型，不需 API 金鑰。",
   "author": {
     "name": "minjunnzheng",

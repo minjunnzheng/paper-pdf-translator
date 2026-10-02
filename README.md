@@ -89,6 +89,7 @@ uv run paper-translate run --attachment <PDF 附件代碼> --pages 1-2 --engine 
 | `--review` | 每批譯文再對照原文校對一次（請求數加倍） |
 | `--lenient` | 校對沒通過檢查的批次保留初譯，照樣輸出 PDF；`--engine claude` 與 `codex` 一律如此 |
 | `--terms 檔案` | 要保留英文的術語清單，見下節 |
+| `--translate-references` | 連參考文獻一起翻（預設不翻，見「已知限制」） |
 | `--engine-model 名稱` | 訂閱 CLI 的模型名；Claude 預設 `sonnet`，Codex 預設用它設定檔裡的模型 |
 | `--dry-run` | 只做檢查並印出設定，不送任何翻譯請求 |
 
@@ -99,7 +100,12 @@ repo 內附一個薄 skill（`skills/paper-translate/`）和外掛 manifest，�
 - Codex：manifest 在 `.codex-plugin/plugin.json`。把這個 repo 加成外掛市集（`codex plugin marketplace add minjunnzheng/paper-pdf-translator`）後安裝 `paper-pdf-translator`。
 - Claude Code：manifest 在 `.claude-plugin/`。`/plugin marketplace add minjunnzheng/paper-pdf-translator`，再 `/plugin install paper-pdf-translator@paper-pdf-translator`。
 
-外掛的安裝流程尚未在乾淨環境實測；CLI 本身不依賴外掛，照上面的方式直接執行即可。
+在 Codex 裡實測過安裝與整篇翻譯，有兩點要注意：
+
+- Codex 的預設沙箱會擋下 `uv` 的套件快取與巢狀的 `codex exec`，需要讓 Codex 提升權限才跑得動。
+- 開著自動核准審查時，指令裡要明講同意把論文全文送到 OpenAI，否則審查會擋下來等你確認。
+
+Claude Code 的外掛安裝流程尚未實測。CLI 本身不依賴外掛，照上面的方式直接執行即可。
 
 ## 術語檔
 
@@ -156,6 +162,7 @@ another term | 不要的譯法, 另一個不要的譯法
 | 遠端 `llama-server`，Qwen3.8-Flash-Next Q4_K_XL，伺服器預設 presence penalty 1.5 | 22 分 46 秒 | 87 | 76 |
 | 同上，請求帶 `presence_penalty: 0`（現行做法） | 22 分 29 秒 | 87 | 79 |
 
+- 這三次是 0.1 版的結果，當時參考文獻也一併翻譯；現在預設跳過，這篇論文的參考文獻約佔全文文字的兩成。
 - 三次都輸出完整的 13 頁 PDF。沒通過的批次以「數字或公式佔位符數量不符」最多，其次是術語次數不符。
 - 這是單篇論文、各跑一次的結果，樣本太小，不足以判斷哪個引擎翻得比較好。表中只有機械檢查的通過數，沒有人逐句比對過譯文。
 - 測試當時使用一份 69 個詞的領域術語檔，校對提示詞也含有針對該篇論文的例子；目前版本的提示詞已改為通用寫法，數字可能不同。
@@ -176,7 +183,7 @@ another term | 不要的譯法, 另一個不要的譯法
 - 只測過少數幾篇有文字層的英文期刊論文。掃描檔、文字層不足的頁面會被拒絕。
 - 譯文語言固定為台灣繁體中文。
 - 表格儲存格不翻譯。
-- 參考文獻不會被排除，會一併送去處理。
+- 參考文獻預設不翻：工具找文末的 `References`（或 `Bibliography`、`Literature cited` 等）標題，標題之後到文件結尾的段落原樣保留，也不送給模型。放在參考文獻後面的附錄因此也不會被翻；找不到標題時則照舊全部翻譯。兩種情況都記在 manifest 的 `references` 欄。
 - 版面模型可能誤判圖區與頁首；還原原圖的步驟不支援旋轉或裁切過的頁面。
 - 機械檢查抓不到語意錯誤。術語保護只涵蓋你列在術語檔裡的詞。
 - 相依套件版本固定在 `pdf2zh-next 2.9.0`、`babeldoc 0.6.2`、`pymupdf 1.25.2`；工具對 BabelDOC 做了兩處小範圍調整（拉丁字寬度、來源區域擷取），換版本可能失效。

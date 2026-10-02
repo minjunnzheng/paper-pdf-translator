@@ -172,6 +172,100 @@ class Codex(unittest.TestCase):
             self.assertEqual(code, 2)
 
 
+BODY = "A closing paragraph of the main text that must still be translated."
+CITED = "Doe, J. and Roe, R. (2001) An invented study of nothing. Journal of Examples 1, 1-10."
+
+
+class References(unittest.TestCase):
+    def make_pdf(self, folder: str, heading: str | None) -> Path:
+        import fitz
+
+        document = fitz.open()
+        document.new_page().insert_text(
+            (72, 100), "The opening page of the made-up paper."
+        )
+        page = document.new_page()
+        page.insert_text((72, 100), BODY)
+        if heading:
+            page.insert_text((72, 200), heading)
+        page.insert_text((72, 230), CITED)
+        path = Path(folder) / "paper.pdf"
+        document.save(path)
+        return path
+
+    def section(self, heading: str | None) -> dict | None:
+        with tempfile.TemporaryDirectory() as folder:
+            return pt.reference_section(self.make_pdf(folder, heading))
+
+    def test_finds_the_section(self):
+        for heading in (
+            "References",
+            "REFERENCES",
+            "7. References",
+            "Literature Cited",
+        ):
+            section = self.section(heading)
+            self.assertEqual(section["heading_page"], 2, heading)
+            self.assertTrue(pt.in_references(section, CITED))
+            self.assertTrue(
+                pt.in_references(
+                    section, "Doe, J. and Roe, R. {v1}(2001) An invented study"
+                )
+            )
+            self.assertFalse(pt.in_references(section, BODY))
+            self.assertFalse(pt.in_references(section, heading))
+
+    def test_no_heading(self):
+        self.assertIsNone(self.section(None))
+        self.assertFalse(pt.in_references(None, CITED))
+
+    def translator(self, section, calls):
+        def chat(system, user):
+            calls.append(user)
+            rows = json.loads(user.partition(pt.BATCH_MARKER)[2])
+            return json.dumps([{"id": row["id"], "output": "譯文"} for row in rows])
+
+        settings = pt.pdf_settings(
+            {"model": "test-model", "endpoint": pt.UNUSED_ENDPOINT}
+        )
+        return pt.reviewing_translator(settings, [], chat, False, False, section)
+
+    def batch(self, *texts: str) -> str:
+        rows = [{"id": i, "input": text} for i, text in enumerate(texts)]
+        return "instructions\n" + pt.BATCH_MARKER + "\n" + json.dumps(rows)
+
+    def test_mixed_batch_sends_only_the_body(self):
+        section, calls = self.section("References"), []
+        reply = self.translator(section, calls).do_llm_translate(
+            self.batch(BODY, CITED)
+        )
+        self.assertEqual(
+            json.loads(reply), [{"id": 0, "output": "譯文"}, {"id": 1, "output": CITED}]
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("Doe", calls[0])
+        self.assertEqual(len(section["skipped"]), 1)
+
+    def test_reference_only_batch_sends_nothing(self):
+        section, calls = self.section("References"), []
+        translator = self.translator(section, calls)
+        reply = translator.do_llm_translate(self.batch(CITED))
+        self.assertEqual(json.loads(reply), [{"id": 0, "output": CITED}])
+        # the engine's retry of an unchanged paragraph arrives wrapped in a prompt
+        wrapped = "Long instructions.\nNow translate the following text:\n" + CITED
+        self.assertEqual(translator.do_llm_translate(wrapped), CITED)
+        self.assertEqual(translator.do_translate(wrapped), CITED)
+        self.assertEqual(translator.do_translate(CITED), CITED)
+        self.assertEqual(calls, [])
+        self.assertEqual(len(section["skipped"]), 1)
+
+    def test_without_a_section_everything_is_sent(self):
+        calls = []
+        reply = self.translator(None, calls).do_llm_translate(self.batch(BODY, CITED))
+        self.assertEqual([row["output"] for row in json.loads(reply)], ["譯文", "譯文"])
+        self.assertIn("Doe", calls[0])
+
+
 class Plugin(unittest.TestCase):
     root = Path(__file__).resolve().parent.parent
 

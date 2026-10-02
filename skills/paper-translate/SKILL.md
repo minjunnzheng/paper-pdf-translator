@@ -12,7 +12,7 @@ description: 把英文論文 PDF 翻成台灣繁體中文並保留原版面（�
 不必先 clone：
 
 ```sh
-uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.2.0 paper-translate <子指令>
+uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.3.0 paper-translate <子指令>
 ```
 
 第一次會下載約 900 MB 的相依套件。已經 clone 過 repo 的話，在該目錄用 `uv run paper-translate <子指令>`。不確定環境是否就緒時先跑 `doctor`。
@@ -25,7 +25,9 @@ uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.2.0 paper
 | Claude Code | Claude 訂閱 | `--engine claude` |
 | 使用者指定本機或另一台機器上的模型 | 本機模型 | `--model <ID> --base-url http://127.0.0.1:<埠>/v1`，另一台機器再加 `--remote-host <ssh 主機>` |
 
-訂閱引擎會把論文內容送到該供應商，並消耗訂閱額度：每頁約 8 到 14 次請求。第一次使用時要告訴使用者這兩點。
+訂閱引擎會把論文內容送到該供應商，並消耗訂閱額度：每頁約 8 到 14 次請求。第一次使用時要告訴使用者這兩點，並取得他對「把全文送到該供應商」的明確同意再執行。
+
+在 Codex 裡，預設沙箱會擋下 `uv` 的套件快取與巢狀的 `codex exec`（`Operation not permitted`）；遇到時請求提升權限，不要改用別的方法翻。
 
 ## 流程
 
@@ -53,4 +55,4 @@ paper-translate run --pdf paper.pdf --engine codex --review --bilingual
 
 ## 限制
 
-只支援有文字層的英文 PDF，譯文固定為台灣繁體中文；表格儲存格不翻，參考文獻不會被排除。完整說明見 repo 的 README。
+只支援有文字層的英文 PDF，譯文固定為台灣繁體中文；表格儲存格不翻。參考文獻預設不翻（標題之後到文末都保留原文，含放在其後的附錄）；使用者要翻就加 `--translate-references`。完整說明見 repo 的 README。
