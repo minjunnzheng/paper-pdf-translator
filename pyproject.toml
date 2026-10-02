@@ -1,7 +1,7 @@
 [project]
 name = "paper-pdf-translator"
-version = "0.1.0"
-description = "把英文論文 PDF 翻成繁體中文並保留原版面；可用本機模型或 Claude 訂閱"
+version = "0.2.0"
+description = "把英文論文 PDF 翻成繁體中文並保留原版面；可用本機模型或 Claude、Codex 訂閱"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]

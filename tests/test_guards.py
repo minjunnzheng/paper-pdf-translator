@@ -1,8 +1,10 @@
 """Offline checks of term protection, guards and settings. No model request is sent."""
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import paper_translate as pt
 
@@ -129,6 +131,43 @@ class Settings(unittest.TestCase):
         tunnel = pt.remote_tunnel("host", "http://example.com:8080/v1")
         with self.assertRaises(ValueError):
             tunnel.__enter__()
+
+
+class Codex(unittest.TestCase):
+    def run_with(self, reply: str, model: str) -> tuple[str, list[str]]:
+        seen = {}
+
+        def fake_run(command, **options):
+            seen["command"], seen["input"] = command, options["input"]
+            Path(command[command.index("-o") + 1]).write_text(reply, encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(pt.subprocess, "run", fake_run):
+            text = pt.codex_chat(model, "system text", "user text")
+        self.assertEqual(seen["input"], "system text\n\nuser text")
+        return text, seen["command"]
+
+    def test_reply_and_default_model(self):
+        text, command = self.run_with('```json\n[{"id": 0}]\n```\n', pt.CODEX_DEFAULT)
+        self.assertEqual(text, '[{"id": 0}]')
+        self.assertNotIn("-m", command)
+        self.assertEqual(command[command.index("-s") + 1], "read-only")
+        self.assertEqual(command[-1], "-")
+
+    def test_named_model(self):
+        _, command = self.run_with("譯文", "some-model")
+        self.assertEqual(command[command.index("-m") + 1], "some-model")
+
+    def test_empty_reply_is_an_error(self):
+        with self.assertRaises(RuntimeError):
+            self.run_with("", pt.CODEX_DEFAULT)
+
+    def test_remote_host_needs_a_local_engine(self):
+        for engine in ("claude", "codex"):
+            code = pt.main(
+                ["run", "--pdf", "x.pdf", "--engine", engine, "--remote-host", "host"]
+            )
+            self.assertEqual(code, 2)
 
 
 if __name__ == "__main__":

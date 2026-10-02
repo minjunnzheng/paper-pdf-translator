@@ -58,9 +58,10 @@ ENGINE_SYSTEM = (
     "You are a translation engine. Follow the instructions in the user message "
     "exactly and output only what it asks for."
 )
-# The PDF engine needs an endpoint in its settings; with --engine claude every
-# request is routed to the Claude CLI and this closed loopback port is never used.
+# The PDF engine needs an endpoint in its settings; with a subscription engine every
+# request is routed to that CLI and this closed loopback port is never used.
 UNUSED_ENDPOINT = "http://127.0.0.1:9/v1"
+CODEX_DEFAULT = "codex-default"  # the model set in the user's Codex configuration
 
 # Filled by load_terms() from --terms: English terms kept verbatim in the translation,
 # and Chinese renderings to reject for a term.
@@ -677,6 +678,58 @@ def subscription_chat(model: str, system: str, user: str) -> str:
     return re.sub(r"\A```(?:json)?\s*|\s*```\Z", "", reply["result"].strip())
 
 
+def codex_cli_version() -> str:
+    try:
+        return subprocess.run(
+            ["codex", "--version"],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Codex CLI is not usable: {exc}") from exc
+
+
+def codex_chat(model: str, system: str, user: str) -> str:
+    """One request through `codex exec` with the ChatGPT subscription login."""
+    try:
+        # A neutral directory and a read-only sandbox: the request is text in, text out.
+        with tempfile.TemporaryDirectory(prefix="paper-translate-codex-") as cwd:
+            reply = Path(cwd) / "reply.txt"
+            command = [
+                "codex",
+                "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "-s",
+                "read-only",
+                "-c",
+                'model_reasoning_effort="low"',
+                "-o",
+                str(reply),
+            ]
+            if model != CODEX_DEFAULT:
+                command += ["-m", model]
+            done = subprocess.run(
+                [*command, "-"],
+                input=f"{system}\n\n{user}",
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=900,
+                cwd=cwd,
+            )
+            if done.returncode or not reply.is_file():
+                raise RuntimeError(done.stderr.strip()[-200:] or "no reply written")
+            text = reply.read_text(encoding="utf-8").strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Codex CLI request failed: {exc}") from exc
+    if not text:
+        raise RuntimeError("Codex CLI returned an empty reply")
+    return re.sub(r"\A```(?:json)?\s*|\s*```\Z", "", text)
+
+
 @contextmanager
 def remote_tunnel(host: str, base_url: str):
     """Forward a loopback port to the model server on host; yield the local URL."""
@@ -837,10 +890,11 @@ def command_doctor(args: argparse.Namespace) -> None:
         print(f"ICU uconv (--review): {uconv()}")
     except RuntimeError:
         print("ICU uconv (--review): missing")
-    try:
-        print(f"Claude CLI (--engine claude): {claude_cli_version()}")
-    except RuntimeError:
-        print("Claude CLI (--engine claude): missing")
+    for name, version in (("claude", claude_cli_version), ("codex", codex_cli_version)):
+        try:
+            print(f"{name} CLI (--engine {name}): {version()}")
+        except RuntimeError:
+            print(f"{name} CLI (--engine {name}): missing")
     assets = Path.home() / ".cache/babeldoc"
     present = all((assets / name).is_dir() for name in ("models", "fonts", "cmap"))
     print(
@@ -925,17 +979,28 @@ def command_run(args: argparse.Namespace) -> None:
         f"bilingual: {args.bilingual}; review: {args.review}; "
         f"protected terms: {len(REVIEW_TERMS)}"
     )
-    claude = args.engine == "claude"
-    if claude:
+    claude = args.engine in (
+        "claude",
+        "codex",
+    )  # a subscription CLI, not a local server
+    if args.engine == "claude":
         local = {
             "provider": "claude-cli",
-            "model": args.engine_model,
+            "model": args.engine_model or "sonnet",
             "cli_version": claude_cli_version(),
+        }
+    elif args.engine == "codex":
+        local = {
+            "provider": "codex-cli",
+            "model": args.engine_model or CODEX_DEFAULT,
+            "reasoning_effort_cli": "low",
+            "cli_version": codex_cli_version(),
         }
     elif not args.model or not args.base_url:
         raise RuntimeError(
             "Set --model and --base-url (or PAPER_TRANSLATE_MODEL and "
-            "PAPER_TRANSLATE_BASE_URL) for a local model server, or use --engine claude"
+            "PAPER_TRANSLATE_BASE_URL) for a local model server, or use --engine "
+            "claude or codex"
         )
     else:
         local = local_server(args.model, args.base_url, args.remote_host)
@@ -990,8 +1055,8 @@ def command_run(args: argparse.Namespace) -> None:
     if claude:
         print(f"provider/model: {local['provider']} / {local['model']}")
         print(
-            "warning: paragraphs are sent to Anthropic through the Claude "
-            "subscription CLI; model identity is recorded by name only"
+            "warning: paragraphs are sent to the provider through its subscription "
+            "CLI; model identity is recorded by name only"
         )
     else:
         print(
@@ -1254,12 +1319,17 @@ def run_pdf(
                 raise RuntimeError("Source changed while being copied")
             engine_output = scratch / "engine-output"
             engine_output.mkdir()
-            claude = config["provider"] == "claude-cli"
+            claude = config["provider"] in ("claude-cli", "codex-cli")
             chat = None
             if claude:
+                send = (
+                    codex_chat
+                    if config["provider"] == "codex-cli"
+                    else subscription_chat
+                )
 
                 def chat(system: str, user: str) -> str:
-                    return subscription_chat(config["model"], system, user)
+                    return send(config["model"], system, user)
 
                 settings = pdf_settings(
                     {**config, "endpoint": UNUSED_ENDPOINT}, engine_output
@@ -1413,12 +1483,14 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--attachment", help="Zotero PDF attachment key")
     run.add_argument(
         "--engine",
-        choices=("local", "claude"),
+        choices=("local", "claude", "codex"),
         default="local",
-        help="claude sends paragraphs to Anthropic via the Claude subscription CLI",
+        help="claude or codex sends paragraphs to that provider via its subscription CLI",
     )
     run.add_argument(
-        "--engine-model", default="sonnet", help="model name passed to the Claude CLI"
+        "--engine-model",
+        help="model for the subscription CLI (default: sonnet for claude, the "
+        "configured model for codex)",
     )
     run.add_argument("--pages", help="physical PDF pages, e.g. 1-3,7")
     run.add_argument(
@@ -1446,7 +1518,7 @@ def main(argv: list[str] | None = None) -> int:
         "--lenient",
         action="store_true",
         help="publish the PDF even if a proofread batch fails its guards; the failed "
-        "batch keeps its draft (always on with --engine claude)",
+        "batch keeps its draft (always on with --engine claude or codex)",
     )
     run.add_argument(
         "--bilingual", action="store_true", help="original and translation side by side"
@@ -1456,9 +1528,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     host = getattr(args, "remote_host", None)
     try:
-        if host and getattr(args, "engine", "local") == "claude":
+        if host and getattr(args, "engine", "local") != "local":
             raise ValueError(
-                "--remote-host applies to a local model, not --engine claude"
+                "--remote-host applies to a local model, not a subscription engine"
             )
         if host and args.model and args.base_url:
             with remote_tunnel(host, args.base_url) as url:

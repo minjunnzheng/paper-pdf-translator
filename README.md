@@ -1,10 +1,10 @@
 # paper-pdf-translator
 
-把英文論文 PDF 翻成台灣繁體中文，版面、圖、表、公式留在原位。翻譯可以交給自己機器上的模型，也可以交給 Claude 訂閱，不需要任何付費 API 金鑰。
+把英文論文 PDF 翻成台灣繁體中文，版面、圖、表、公式留在原位。翻譯可以交給自己機器上的模型，也可以交給 Claude 或 ChatGPT（Codex）訂閱，不需要任何付費 API 金鑰。
 
 排版由 [PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next) 與 [BabelDOC](https://github.com/funstory-ai/BabelDOC) 負責。這個工具在它們外面加了四件事：
 
-- 翻譯請求改送本機模型或 Claude 訂閱 CLI。
+- 翻譯請求改送本機模型，或 Claude、Codex 的訂閱 CLI。
 - 指定的英文術語在翻譯前後原樣保留。
 - 每段譯文可以再對照原文校對一次，並用機械檢查擋掉改到數字、公式或術語的譯文。
 - 每次執行留下 manifest 與逐批紀錄，事後查得到哪一段沒通過檢查。
@@ -16,10 +16,11 @@
 ## 需求
 
 - macOS（只在 macOS 上測過）、Python 3.12、[uv](https://docs.astral.sh/uv/)
-- 翻譯引擎，三選一：
+- 翻譯引擎，四選一：
   - 本機的 `llama-server`（GGUF）或 `mlx-vlm`，提供 OpenAI 相容介面
   - 另一台機器上的 `llama-server`，可用 SSH 金鑰登入
   - 已登入訂閱帳號的 [Claude Code CLI](https://claude.com/claude-code)（`claude` 指令）
+  - 已登入 ChatGPT 帳號的 [Codex CLI](https://github.com/openai/codex)（`codex` 指令）
 - 使用 `--review` 時需要 ICU 的 `uconv`（`brew install icu4c`），用來把簡體字轉成繁體
 - 想直接從 Zotero 取 PDF 時，Zotero 要開啟本機 API（設定 → 進階 → 允許其他應用程式與 Zotero 通訊）
 
@@ -43,6 +44,14 @@ uv run paper-translate doctor
 ```sh
 uv run paper-translate run --pdf paper.pdf --pages 1-2 --engine claude --review
 ```
+
+### Codex（ChatGPT 訂閱）
+
+```sh
+uv run paper-translate run --pdf paper.pdf --pages 1-2 --engine codex --review
+```
+
+每個請求用 `codex exec` 送出：唯讀沙箱、不保留對話、推理強度固定為 `low`。模型預設是你 Codex 設定檔裡的那個，可用 `--engine-model` 指定。
 
 ### 本機模型
 
@@ -78,9 +87,9 @@ uv run paper-translate run --attachment <PDF 附件代碼> --pages 1-2 --engine 
 |---|---|
 | `--bilingual` | 輸出原文頁與譯文頁並排的 PDF |
 | `--review` | 每批譯文再對照原文校對一次（請求數加倍） |
-| `--lenient` | 校對沒通過檢查的批次保留初譯，照樣輸出 PDF；`--engine claude` 一律如此 |
+| `--lenient` | 校對沒通過檢查的批次保留初譯，照樣輸出 PDF；`--engine claude` 與 `codex` 一律如此 |
 | `--terms 檔案` | 要保留英文的術語清單，見下節 |
-| `--engine-model 名稱` | Claude 的模型名，預設 `sonnet` |
+| `--engine-model 名稱` | 訂閱 CLI 的模型名；Claude 預設 `sonnet`，Codex 預設用它設定檔裡的模型 |
 | `--dry-run` | 只做檢查並印出設定，不送任何翻譯請求 |
 
 ## 術語檔
@@ -108,7 +117,7 @@ another term | 不要的譯法, 另一個不要的譯法
 - 原文是敘述句時，譯文不能整段還是英文
 - 段落數與段落編號沒有被改動
 
-本機模型預設採嚴格模式：任何一批沒過就停止，不輸出 PDF。加 `--lenient`（或使用 Claude）時，沒過的批次保留未校對的初譯，PDF 照樣輸出，失敗原因寫進 manifest。
+本機模型預設採嚴格模式：任何一批沒過就停止，不輸出 PDF。加 `--lenient`（或使用 Claude、Codex）時，沒過的批次保留未校對的初譯，PDF 照樣輸出，失敗原因寫進 manifest。
 
 每次執行的結果放在 `~/paper-translations/`（可用環境變數 `PAPER_TRANSLATE_OUTPUT` 改）下的一個工作目錄：
 
@@ -124,7 +133,8 @@ another term | 不要的譯法, 另一個不要的譯法
 
 - **本機與遠端模型**：只接受 loopback 位址，內容不離開你的機器（遠端模型則經由你自己的 SSH 通道）。執行時會移除環境裡的 OpenAI 金鑰與 proxy 設定。工具會核對伺服器回報的模型路徑並記錄模型檔的 SHA-256。
 - **Claude 訂閱**：論文內容會送到 Anthropic。工具以 `claude -p` 呼叫、不給任何工具權限，並移除 `ANTHROPIC_API_KEY`，確保走訂閱登入而不是 API 計費。模型身分只能記錄「CLI 版本＋模型名」，無法驗證。
-- **Claude 的用量**：排版引擎把一頁切成多批，每批是一次請求，加 `--review` 再加倍。實測每頁約 9 到 14 次請求，而且每次請求有幾千 tokens 的固定開場。整篇論文會用掉不少訂閱額度，請先用兩頁評估。
+- **Codex 訂閱**：論文內容會送到 OpenAI。工具以 `codex exec` 呼叫，唯讀沙箱、不保留對話，走 ChatGPT 登入而不是 API 金鑰。模型身分同樣只能記錄「CLI 版本＋模型名」。
+- **訂閱的用量**：排版引擎把一頁切成多批，每批是一次請求，加 `--review` 再加倍。實測每頁約 8 到 14 次請求，而且每次請求有固定的開場開銷（Claude CLI 實測約幾千 tokens）。整篇論文會用掉不少訂閱額度，請先用兩頁評估。
 - **本機模型的取樣設定**：請求固定帶 `temperature: 0` 與 `presence_penalty: 0`。有些模型的伺服器預設值是為聊天調的（例如 presence penalty 1.5），會讓模型避開重複出現的術語、數字與佔位符，對翻譯不利。
 
 ## 實測
@@ -141,6 +151,16 @@ another term | 不要的譯法, 另一個不要的譯法
 - 這是單篇論文、各跑一次的結果，樣本太小，不足以判斷哪個引擎翻得比較好。表中只有機械檢查的通過數，沒有人逐句比對過譯文。
 - 測試當時使用一份 69 個詞的領域術語檔，校對提示詞也含有針對該篇論文的例子；目前版本的提示詞已改為通用寫法，數字可能不同。
 - 遠端模型跑在一台有兩張 32 GB 顯示卡的機器上。
+
+同一篇論文的其中兩頁，不帶術語檔、開啟 `--review`，使用目前版本的通用提示詞：
+
+| 引擎 | 耗時 | 批次 | 校對後通過檢查 |
+|---|---|---|---|
+| Codex 訂閱（Codex 設定的預設模型，推理強度 `low`） | 4 分 19 秒 | 8 | 8 |
+| Claude 訂閱（`sonnet`） | 2 分 41 秒 | 10 | 8 |
+| 遠端 `llama-server`，Qwen3.8-Flash-Next Q4_K_XL | 3 分 15 秒 | 9 | 8 |
+
+兩頁、各跑一次，只能說明三條路都跑得通，不能用來比較翻譯品質。
 
 ## 已知限制
 
