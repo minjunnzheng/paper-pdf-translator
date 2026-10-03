@@ -1,5 +1,44 @@
 # paper-pdf-translator
 
+[English](#english) · [中文](#中文)
+
+## English
+
+Translate English research-paper PDFs into Traditional Chinese (Taiwan). The layout, figures, tables and formulas stay in place. The translation can run on a model on your own machine, or on a Claude or ChatGPT (Codex) subscription. No paid API key is necessary.
+
+[PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next) and [BabelDOC](https://github.com/funstory-ai/BabelDOC) do the layout. This tool adds four things:
+
+- It sends the translation requests to a local model, or to the Claude Code or Codex subscription CLI.
+- It keeps the English terms that you list unchanged in the translation.
+- With `--review`, it checks each batch against the source text a second time. Mechanical checks then reject a batch if the numbers, formula placeholders or listed terms changed.
+- Each run writes a manifest and a log for each batch, so you can find which batch failed a check.
+
+The output is a translated PDF, or a PDF with source pages and translated pages side by side (`--bilingual`).
+
+Requirements: macOS (the only tested platform), Python 3.12, [uv](https://docs.astral.sh/uv/), and one translation engine: a local or remote `llama-server`, the [Claude Code CLI](https://claude.com/claude-code), or the [Codex CLI](https://github.com/openai/codex).
+
+```sh
+git clone https://github.com/minjunnzheng/paper-pdf-translator.git
+cd paper-pdf-translator
+uv sync --locked
+uv run paper-translate doctor
+
+# Try two pages first, then translate the full paper.
+uv run paper-translate run --pdf paper.pdf --pages 1-2 --engine claude --review
+uv run paper-translate run --pdf paper.pdf --pages 1-2 --engine codex --review
+```
+
+Limits:
+
+- The output language is Traditional Chinese only.
+- The translation is machine output. The checks are mechanical and do not find errors of meaning. Compare with the source before you cite or rely on the text.
+- Table cells are not translated. The reference list is not translated by default (`--translate-references` turns it on).
+- A subscription engine sends the paper text to Anthropic or OpenAI. A page uses approximately 8 to 14 requests, and `--review` doubles the number of requests.
+
+The full documentation below is in Chinese. License: AGPL-3.0-or-later.
+
+## 中文
+
 把英文論文 PDF 翻成台灣繁體中文，版面、圖、表、公式留在原位。翻譯可以交給自己機器上的模型，也可以交給 Claude 或 ChatGPT（Codex）訂閱，不需要任何付費 API 金鑰。
 
 排版由 [PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next) 與 [BabelDOC](https://github.com/funstory-ai/BabelDOC) 負責。這個工具在它們外面加了四件事：
