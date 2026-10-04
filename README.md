@@ -13,7 +13,9 @@ Translate English research-paper PDFs into Traditional Chinese (Taiwan). The lay
 - With `--review`, it checks each batch against the source text a second time. Mechanical checks then reject a batch if the numbers, formula placeholders or listed terms changed.
 - Each run writes a manifest and a log for each batch, so you can find which batch failed a check.
 
-The output is a translated PDF, or a PDF with source pages and translated pages side by side (`--bilingual`). `--format pages` writes a web page instead: each source page as a row, with the translation on the left, the original page as an image beside it, and a question panel on the right that `paper-translate serve` connects to the same engine.
+The output is a translated PDF, or a PDF with source pages and translated pages side by side (`--bilingual`). `--format pages` writes a web page instead: each source page as a row, with the translation on the left, the original page as an image beside it, and a question panel on the right that `paper-translate serve` connects to the same engine. Hovering a translated paragraph frames its position on the original page. The page format also takes other languages with `--from` and `--to` (English, Traditional and Simplified Chinese, Japanese, Korean, German, Spanish, French).
+
+A model server on another machine can be used over SSH with `--remote-host`. The repository is also a Codex and Claude Code plugin: its skill lets the agent run the tool, try two pages first and report the checks.
 
 Requirements: macOS (the only tested platform), Python 3.12, [uv](https://docs.astral.sh/uv/), and one translation engine: a local or remote `llama-server`, the [Claude Code CLI](https://claude.com/claude-code), or the [Codex CLI](https://github.com/openai/codex).
 
@@ -129,6 +131,21 @@ uv run paper-translate serve <上一步印出的輸出目錄>
 - 每個問題一次請求；用訂閱引擎時，問題與所附的論文內容會送到該供應商。
 - 伺服器只接受本機連線，API 需要每次啟動時產生的金鑰（已放在開啟的網址裡），按 Ctrl+C 結束。
 
+### 其他語言（只限 `--format pages`）
+
+網頁格式不用把譯文塞回原排版，所以可以換語言：`--from` 是論文的語言，`--to` 是譯文的語言。可選 `en`、`zh-TW`、`zh-CN`、`ja`、`ko`、`de`、`es`、`fr`，預設是 `en` 翻 `zh-TW`。
+
+```sh
+uv run paper-translate run --pdf paper.pdf --format pages --to zh-CN --engine claude --review
+uv run paper-translate run --pdf 論文.pdf --format pages --from ja --engine claude --review
+```
+
+- 譯成繁中或簡中時，會再用 `uconv` 統一成對應的字體。
+- 校對後的檢查改看「譯文是否真的是目標語言」：例如譯成中文時不能留下日文假名或韓文。
+- 參考文獻標題另外認得德、法、西、日、韓、中文的常見寫法。
+- 問答欄用譯文的語言回答；頁面上的按鈕與說明文字仍是中文。
+- PDF 輸出（預設格式）仍只支援英翻台灣繁中。
+
 ### 從 Zotero 取檔
 
 ```sh
@@ -144,6 +161,7 @@ uv run paper-translate run --attachment <PDF 附件代碼> --pages 1-2 --engine 
 | 選項 | 作用 |
 |---|---|
 | `--format pages` | 輸出左譯文、右原文整頁的網頁，搭配 `serve` 問答 |
+| `--from`、`--to` | 原文與譯文的語言（只限 `--format pages`） |
 | `--bilingual` | 輸出原文頁與譯文頁並排的 PDF |
 | `--review` | 每批譯文再對照原文校對一次（請求數加倍） |
 | `--lenient` | 校對沒通過檢查的批次保留初譯，照樣輸出 PDF；`--engine claude` 與 `codex` 一律如此 |
@@ -240,7 +258,8 @@ another term | 不要的譯法, 另一個不要的譯法
 ## 已知限制
 
 - 只測過少數幾篇有文字層的英文期刊論文。掃描檔、文字層不足的頁面會被拒絕。
-- 譯文語言固定為台灣繁體中文。
+- PDF 輸出的譯文語言固定為台灣繁體中文；其他語言只限網頁格式。英翻簡中用真實論文測過兩頁；日、韓、德、西、法文只用自編的一頁測試文字驗證過流程，沒有用真實論文測過。
+- 術語檔的比對依英文的字詞邊界設計，原文是日、韓、中文時術語保護不可靠。
 - 表格儲存格不翻譯。
 - 參考文獻預設不翻：工具找文末的 `References`（或 `Bibliography`、`Literature cited` 等）標題，標題之後到文件結尾的段落原樣保留，也不送給模型。放在參考文獻後面的附錄因此也不會被翻；找不到標題時則照舊全部翻譯。兩種情況都記在 manifest 的 `references` 欄。
 - 版面模型可能誤判圖區與頁首；還原原圖的步驟不支援旋轉或裁切過的頁面。

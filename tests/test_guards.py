@@ -479,6 +479,106 @@ class Pages(unittest.TestCase):
                 server.server_close()
 
 
+JA = "この研究では、加熱実験によって試料の比率が段階的に低下することを確かめた。"
+KO = "이 연구에서는 가열 실험을 통해 시료의 비율이 단계적으로 감소함을 확인하였다."
+DE = "In dieser Studie wurde gezeigt, dass das Verhältnis beim Erhitzen schrittweise abnimmt."
+
+
+class Languages(unittest.TestCase):
+    def test_prompts(self):
+        self.assertEqual(pt.translation_prompt("en", "zh-TW"), pt.PDF_PROMPT)
+        self.assertEqual(pt.review_prompt("en", "zh-TW"), pt.REVIEW_PROMPT)
+        prompt = pt.translation_prompt("ja", "zh-TW")
+        self.assertIn("Japanese", prompt)
+        self.assertIn("Traditional Chinese", prompt)
+        self.assertIn("{v1}", pt.review_prompt("de", "zh-CN"))
+
+    def test_untranslated_output_is_caught(self):
+        cases = [
+            ("ja", "zh-TW", JA, "本研究透過加熱實驗確認樣本的比例逐步下降。", JA),
+            (
+                "ja",
+                "zh-TW",
+                JA,
+                "本研究透過加熱實驗確認樣本的比例逐步下降。",
+                "本研究では加熱実験によって確かめた比例逐步下降。",
+            ),
+            ("ko", "zh-TW", KO, "本研究透過加熱實驗確認樣本的比例逐步下降。", KO),
+            ("de", "zh-CN", DE, "本研究表明加热时比例逐步下降。", DE),
+            (
+                "en",
+                "ja",
+                "In this study the ratio fell step by step as the sample was heated.",
+                "この研究では、加熱によって比率が段階的に低下した。",
+                "In this study the ratio fell step by step as the sample was heated.",
+            ),
+            (
+                "en",
+                "fr",
+                "In this study the ratio fell step by step as the sample was heated.",
+                "Dans cette étude, le rapport a diminué progressivement.",
+                "In this study the ratio fell step by step as the sample was heated.",
+            ),
+        ]
+        for source_lang, target_lang, source, good, bad in cases:
+            pt.validate_revision(source, good, source_lang, target_lang)
+            with self.assertRaises(ValueError, msg=(source_lang, target_lang, bad)):
+                pt.validate_revision(source, bad, source_lang, target_lang)
+
+    def test_script_conversion(self):
+        try:
+            pt.uconv()
+        except RuntimeError:
+            self.skipTest("ICU uconv is not installed")
+        self.assertEqual(pt.convert_script("這種情況", "zh-CN"), "这种情况")
+        self.assertEqual(pt.convert_script("这种情况", "zh-TW"), "這種情況")
+        self.assertEqual(pt.convert_script("이 연구", "ko"), "이 연구")
+
+    def test_other_scripts_are_extracted_and_headings_found(self):
+        import fitz
+
+        for font, body, heading in (
+            ("japan", JA, "参考文献"),
+            ("korea", KO, "참고문헌"),
+        ):
+            with tempfile.TemporaryDirectory() as folder:
+                document = fitz.open()
+                page = document.new_page()
+                for y in (100, 140, 180):
+                    page.insert_text((72, y), body[:30], fontname=font, fontsize=10)
+                page.insert_text((72, 300), heading, fontname=font, fontsize=10)
+                page.insert_text((72, 330), body[:30], fontname=font, fontsize=10)
+                source = Path(folder) / "paper.pdf"
+                document.save(source)
+                rows, skipped, found = pt.pdf_paragraphs(source, [1], True)
+            self.assertEqual(found, 1, font)
+            self.assertTrue(rows, font)
+            self.assertNotIn("no words", [s["reason"] for s in skipped], font)
+            self.assertIn("references", [s["reason"] for s in skipped], font)
+
+    def test_other_languages_need_the_page_format(self):
+        for options in (["--to", "zh-CN"], ["--from", "ja"]):
+            self.assertEqual(
+                pt.main(["run", "--pdf", "x.pdf", "--engine", "claude", *options]), 2
+            )
+        self.assertEqual(
+            pt.main(
+                [
+                    "run",
+                    "--pdf",
+                    "x.pdf",
+                    "--format",
+                    "pages",
+                    "--from",
+                    "ja",
+                    "--to",
+                    "ja",
+                ]
+            ),
+            2,
+        )
+
+
 class Plugin(unittest.TestCase):
     root = Path(__file__).resolve().parent.parent
 
