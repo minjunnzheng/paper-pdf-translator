@@ -1724,7 +1724,17 @@ h2{font-size:16px;color:var(--accent);margin:32px 0 8px;padding-bottom:8px;borde
 .zh{overflow-wrap:anywhere}
 .note{color:var(--muted);font-size:14px;padding:8px}
 .orig{margin:0;position:sticky;top:48px}
+.frame{position:relative}
 .orig img{width:100%;height:auto;display:block;border:1px solid var(--line);background:#fff}
+.box{position:absolute;border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent);border-radius:2px;pointer-events:none}
+.figtext{margin:8px 0;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:14px}
+.figtext summary{cursor:pointer;color:var(--muted)}
+.figtext table{width:100%;border-collapse:collapse;margin-top:4px}
+.figtext td{padding:2px 8px;border-top:1px solid var(--line);vertical-align:top}
+.figtext td[lang=en]{color:var(--muted);font-family:Georgia,"Times New Roman",serif;width:45%}
+.ft{cursor:pointer}
+.ft:hover{background:var(--bg)}
+.ft.picked{outline:2px solid var(--accent)}
 .tag{display:inline-block;font-size:12px;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 8px;margin-right:8px}
 .tag.warn{color:var(--bg);background:var(--accent)}
 .miss{color:var(--muted)}
@@ -1768,12 +1778,28 @@ const io = new IntersectionObserver((entries) => {
   for (const e of entries) if (e.isIntersecting && !picked) { page = e.target.dataset.page; ctx(); }
 }, { rootMargin: "-40% 0px -55% 0px" });
 document.querySelectorAll("section.page").forEach((s) => io.observe(s));
-document.querySelectorAll(".p").forEach((p) => p.addEventListener("click", () => {
-  if (picked) picked.classList.remove("picked");
-  picked = picked === p ? null : p;
-  if (picked) { picked.classList.add("picked"); page = p.closest("section").dataset.page; }
-  ctx();
-}));
+const frame = (el) => el.closest("section").querySelector(".box");
+const mark = (el) => {
+  const box = frame(el);
+  const [l, t, w, h] = (el.dataset.box || "").split(",").map(Number);
+  if (!(w > 0 && h > 0)) { box.hidden = true; return; }
+  Object.assign(box.style, { left: l + "%", top: t + "%", width: w + "%", height: h + "%" });
+  box.hidden = false;
+};
+const unmark = (el) => {
+  if (picked && picked.closest("section") === el.closest("section")) mark(picked);
+  else frame(el).hidden = true;
+};
+document.querySelectorAll(".p, .ft").forEach((p) => {
+  p.addEventListener("mouseenter", () => mark(p));
+  p.addEventListener("mouseleave", () => unmark(p));
+  p.addEventListener("click", () => {
+    if (picked) { picked.classList.remove("picked"); frame(picked).hidden = true; }
+    picked = picked === p ? null : p;
+    if (picked) { picked.classList.add("picked"); page = p.closest("section").dataset.page; mark(picked); }
+    ctx();
+  });
+});
 const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 const add = (cls, text, note) => {
   const d = document.createElement("div");
@@ -1829,12 +1855,24 @@ def pdf_paragraphs(
     path: Path, pages: list[int], skip_references: bool
 ) -> tuple[list[dict], list[dict], int | None]:
     """Text blocks of the selected pages in reading order, the skipped blocks, and
-    the page of the references heading when the reference list is left out."""
+    the page of the references heading when the reference list is left out.
+
+    Each block gets `box`: its position on the page in percent (left, top, width,
+    height). Blocks set clearly smaller than the body text are words printed inside
+    a figure or table; long ones (table bodies) are kept but not translated.
+    """
     import fitz
 
     paragraphs, skipped = [], []
     with fitz.open(path) as document:
         heading = references_heading(document) if skip_references else None
+        sizes = Counter()
+        for page in document:
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for span in line["spans"]:
+                        sizes[round(span["size"], 1)] += len(span["text"].strip())
+        body = sizes.most_common(1)[0][0] if sizes else 0
         # A hyphen at a line end is kept only if the compound occurs unbroken elsewhere.
         compounds = set(
             re.findall(
@@ -1844,7 +1882,15 @@ def pdf_paragraphs(
         )
         for number in pages:
             page = document[number - 1]
-            middle = page.rect.width / 2
+            rect, middle = page.rect, page.rect.width / 2
+            block_size = {}
+            for block in page.get_text("dict")["blocks"]:
+                counts = Counter()
+                for line in block.get("lines", []):
+                    for span in line["spans"]:
+                        counts[round(span["size"], 1)] += len(span["text"].strip())
+                if counts:
+                    block_size[block["number"]] = counts.most_common(1)[0][0]
             blocks = [b for b in page.get_text("blocks") if b[6] == 0]
             blocks.sort(key=lambda b: (b[0] > middle, b[1]))
             for block in blocks:
@@ -1871,34 +1917,46 @@ def pdf_paragraphs(
                     reason = "narrow margin text"
                 elif not re.search(r"[A-Za-z]{3}", raw):
                     reason = "no words"
-                elif block[3] < 0.085 * page.rect.height:
+                elif block[3] < 0.085 * rect.height:
                     reason = "running header"
                 if reason:
                     skipped.append({"page": number, "reason": reason, "text": raw[:80]})
                     continue
                 source, repairs = repair_symbols(raw)
                 source = normalize_terms(source)
+                size = block_size.get(block[5], body)
                 if re.match(r"(Fig\.|Figure|Table)\s*\d", source):
                     label = "caption"
+                elif body and size < 0.75 * body:
+                    label = "figure_text"
                 elif (
                     len(lines) <= 2
                     and len(source) < 120
                     and not source.endswith((".", ",", ";", ":"))
+                    and size >= 0.95 * body
                 ):
                     label = "title"
                 else:
                     label = "text"
-                paragraphs.append(
-                    {
-                        "id": len(paragraphs),
-                        "page": number,
-                        "label": label,
-                        "bbox": [round(value, 1) for value in block[:4]],
-                        "raw": raw,
-                        "symbol_repairs": repairs,
-                        "source": source,
-                    }
-                )
+                row = {
+                    "id": len(paragraphs),
+                    "page": number,
+                    "label": label,
+                    "bbox": [round(value, 1) for value in block[:4]],
+                    "box": [
+                        round(100 * (block[0] - rect.x0) / rect.width, 2),
+                        round(100 * (block[1] - rect.y0) / rect.height, 2),
+                        round(100 * (block[2] - block[0]) / rect.width, 2),
+                        round(100 * (block[3] - block[1]) / rect.height, 2),
+                    ],
+                    "font_size": size,
+                    "raw": raw,
+                    "symbol_repairs": repairs,
+                    "source": source,
+                }
+                if label == "figure_text" and len(source) > 80:
+                    row.update(output="", checks="not translated")
+                paragraphs.append(row)
     return paragraphs, skipped, heading[0] + 1 if heading else None
 
 
@@ -2041,25 +2099,53 @@ def page_pair_html(
     meta: list[tuple],
 ) -> str:
     labels = {"title": "標題", "caption": "圖表說明"}
+
+    def box(row: dict) -> str:
+        return ",".join(map(str, row.get("box") or [])) if row.get("box") else ""
+
+    def warn(row: dict) -> str:
+        if row["checks"] in ("passed", "not translated"):
+            return ""
+        return (
+            f'<span class="tag warn" title="{html.escape(row["checks"], quote=True)}">'
+            "檢查未過</span>"
+        )
+
     sections = []
     for number, image in images.items():
-        rows = []
+        rows, figure = [], []
         for row in (r for r in paragraphs if r["page"] == number):
+            if row["label"] == "figure_text":
+                text = (
+                    '<em class="miss">表格內容請看原文頁</em>'
+                    if row["checks"] == "not translated"
+                    else html.escape(row["output"])
+                    or '<em class="miss">（沒有譯文）</em>'
+                )
+                figure.append(
+                    f'<tr class="ft" data-id="{row["id"]}" data-box="{box(row)}">'
+                    f'<td lang="en">{html.escape(row["source"][:80])}</td>'
+                    f"<td>{warn(row)}{text}</td></tr>"
+                )
+                continue
             tag = (
                 f'<span class="tag">{labels[row["label"]]}</span>'
                 if row["label"] in labels
                 else ""
             )
-            if row["checks"] != "passed":
-                tag += (
-                    f'<span class="tag warn" title="{html.escape(row["checks"], quote=True)}">'
-                    "檢查未過</span>"
-                )
             text = (
                 html.escape(row["output"]) or '<em class="miss">（此段沒有譯文）</em>'
             )
             css = "p head" if row["label"] == "title" else "p"
-            rows.append(f'<div class="{css}" data-id="{row["id"]}">{tag}{text}</div>')
+            rows.append(
+                f'<div class="{css}" data-id="{row["id"]}" data-box="{box(row)}">'
+                f"{tag}{warn(row)}{text}</div>"
+            )
+        if figure:
+            rows.append(
+                f'<details class="figtext"><summary>圖表內的文字（{len(figure)} 項）</summary>'
+                f"<table>{''.join(figure)}</table></details>"
+            )
         if references_page and number >= references_page:
             rows.append('<div class="note">參考文獻保留原文，請看右邊的原文頁。</div>')
         elif not rows:
@@ -2068,8 +2154,9 @@ def page_pair_html(
             f'<section class="page" id="p{number}" data-page="{number}">'
             f"<h2>第 {number} 頁</h2>"
             f'<div class="pair"><div class="zh" lang="zh-Hant">{"".join(rows)}</div>'
-            f'<figure class="orig"><img alt="原文第 {number} 頁" loading="lazy" '
-            f'src="data:image/jpeg;base64,{base64.b64encode(image).decode()}"></figure>'
+            f'<figure class="orig"><div class="frame"><img alt="原文第 {number} 頁" '
+            f'loading="lazy" src="data:image/jpeg;base64,{base64.b64encode(image).decode()}">'
+            '<div class="box" hidden></div></div></figure>'
             "</div></section>"
         )
     nav = " ".join(f'<a href="#p{number}">{number}</a>' for number in images)
@@ -2084,6 +2171,7 @@ def page_pair_html(
         f"<title>{html.escape(title)}</title>\n<style>{PAGE_CSS}</style>\n</head>\n<body>\n"
         f'<header class="top"><h1>{html.escape(title)}</h1>'
         '<p class="sub">每一頁一列：左邊是機器譯文，中間是原文整頁，右邊是問答欄。'
+        "滑鼠移到譯文上，原文頁會框出對應的位置；點一下可固定。"
         "譯文未經人工校對，術語與數值請以原文為準。</p></header>\n"
         f'<nav>頁：{nav}<label><input type="checkbox" id="zh"> 只看譯文</label></nav>\n'
         f'<main data-first="{first}">{"".join(sections)}</main>\n'
@@ -2147,7 +2235,7 @@ def run_pages(
         if not paragraphs:
             raise RuntimeError("No translatable text blocks on the selected pages")
         batches, size = [[]], 0
-        for row in paragraphs:
+        for row in (r for r in paragraphs if r.get("checks") != "not translated"):
             if batches[-1] and size + len(row["source"]) > 2500:
                 batches.append([])
                 size = 0
@@ -2235,6 +2323,7 @@ def run_pages(
                 "warnings": [
                     "Paragraphs are PDF text blocks; one split across columns or pages is translated in parts",
                     "Symbol repairs are heuristics for one journal's text layer; compare with the page image",
+                    "Words inside figures are listed per page; long figure or table text is not translated",
                     "Tables are split into fragments on the left; read them on the page image",
                 ],
             }

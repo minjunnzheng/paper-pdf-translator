@@ -313,6 +313,75 @@ class Pages(unittest.TestCase):
         self.assertIn("參考文獻保留原文", page)
         self.assertNotIn("http://", page.split("<script>")[0])
 
+    def test_figure_words_and_positions(self):
+        import fitz
+
+        with tempfile.TemporaryDirectory() as folder:
+            document = fitz.open()
+            page = document.new_page()
+            body = (
+                "A long body sentence that sets the usual size of the main text here."
+            )
+            for y in (100, 300, 500, 700):
+                page.insert_text((72, y), body, fontsize=10)
+            page.insert_text((72, 150), "SAMPLE PREPARATION", fontsize=10)
+            page.insert_text((300, 400), "Metasediments", fontsize=6)
+            page.insert_text(
+                (72, 600), "x" * 30 + " " + "y" * 30 + " " + "z" * 30, fontsize=6
+            )
+            source = Path(folder) / "paper.pdf"
+            document.save(source)
+            rows, _, _ = pt.pdf_paragraphs(source, [1], False)
+        label = {r["source"]: r for r in rows}
+        self.assertEqual(label["SAMPLE PREPARATION"]["label"], "title")
+        self.assertEqual(label["Metasediments"]["label"], "figure_text")
+        self.assertNotIn("checks", label["Metasediments"])
+        long = next(r for r in rows if r["source"].startswith("xxx"))
+        self.assertEqual(
+            (long["label"], long["checks"]), ("figure_text", "not translated")
+        )
+        self.assertTrue(all(r["label"] == "text" for r in rows if r["source"] == body))
+        left, top, width, height = label["Metasediments"]["box"]
+        self.assertAlmostEqual(left, 100 * 300 / 595, delta=1)
+        self.assertTrue(0 < top < 100 and 0 < width < 100 and 0 < height < 5)
+
+    def test_figure_words_on_the_page(self):
+        rows = [
+            {
+                "id": 0,
+                "page": 1,
+                "label": "text",
+                "box": [10, 10, 50, 5],
+                "output": "正文",
+                "checks": "passed",
+                "source": "Body",
+            },
+            {
+                "id": 1,
+                "page": 1,
+                "label": "figure_text",
+                "box": [60, 40, 10, 2],
+                "output": "變質沉積岩",
+                "checks": "passed",
+                "source": "Metasediments",
+            },
+            {
+                "id": 2,
+                "page": 1,
+                "label": "figure_text",
+                "box": [5, 70, 80, 10],
+                "output": "",
+                "checks": "not translated",
+                "source": "x" * 200,
+            },
+        ]
+        page = pt.page_pair_html("t", rows, {1: b"jpeg"}, None, [])
+        self.assertIn("圖表內的文字（2 項）", page)
+        self.assertIn('data-box="60,40,10,2"', page)
+        self.assertIn("表格內容請看原文頁", page)
+        self.assertIn('<div class="box" hidden></div>', page)
+        self.assertNotIn("檢查未過", page)
+
     def test_reply_with_trailing_remark(self):
         reply = '[{"id": 3, "output": "譯文"}]\n\nNote: kept the units.'
         self.assertEqual(pt.parse_rows(reply, [3]), {3: "譯文"})
