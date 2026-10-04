@@ -4,7 +4,7 @@
 
 ## English
 
-Translate English research-paper PDFs into Traditional Chinese (Taiwan). The layout, figures, tables and formulas stay in place. The translation can run on a model on your own machine, or on a Claude or ChatGPT (Codex) subscription. No paid API key is necessary.
+Translate research-paper PDFs, by default from English into Traditional Chinese (Taiwan). You get either a translated PDF in which the layout, figures, tables and formulas stay in place, or a web page that shows each original page beside its translation, with a panel for asking an AI about the paper. The translation can run on a model on your own machine, or on a Claude or ChatGPT (Codex) subscription. No paid API key is necessary.
 
 [PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next) and [BabelDOC](https://github.com/funstory-ai/BabelDOC) do the layout. This tool adds four things:
 
@@ -41,7 +41,7 @@ The full documentation below is in Chinese. License: AGPL-3.0-or-later.
 
 ## 中文
 
-把英文論文 PDF 翻成台灣繁體中文，版面、圖、表、公式留在原位。翻譯可以交給自己機器上的模型，也可以交給 Claude 或 ChatGPT（Codex）訂閱，不需要任何付費 API 金鑰。
+把論文 PDF 翻成中文，預設是英文翻台灣繁體中文。成品有兩種：保留原版面（圖、表、公式都在原位）的譯文 PDF，或是左邊譯文、右邊原文整頁、還能在網頁上問 AI 的閱讀頁；閱讀頁也支援其他語言。翻譯可以交給自己機器上的模型，也可以交給 Claude 或 ChatGPT（Codex）訂閱，不需要任何付費 API 金鑰。
 
 排版由 [PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next) 與 [BabelDOC](https://github.com/funstory-ai/BabelDOC) 負責。這個工具在它們外面加了四件事：
 

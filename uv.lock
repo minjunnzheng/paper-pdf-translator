@@ -1203,7 +1203,7 @@ wheels = [
 
 [[package]]
 name = "paper-pdf-translator"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "babeldoc" },

@@ -1,13 +1,13 @@
 {
   "name": "paper-pdf-translator",
-  "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面。",
+  "description": "Translate research-paper PDFs into a layout-preserving PDF or a side-by-side reading page with AI questions. 把論文 PDF 翻成保留排版的 PDF，或左譯右原、可問 AI 的閱讀頁。",
   "owner": {
     "name": "minjunnzheng"
   },
   "plugins": [
     {
       "name": "paper-pdf-translator",
-      "description": "把英文論文 PDF 翻成台灣繁體中文並保留原版面；翻譯走訂閱 CLI 或本機模型。",
+      "description": "Translate research-paper PDFs into a layout-preserving PDF or a side-by-side reading page with AI questions; local model or Claude / Codex subscription, no API key. 把論文 PDF 翻成保留排版的 PDF，或左譯右原、可問 AI 的閱讀頁。",
       "source": "./",
       "category": "productivity"
     }

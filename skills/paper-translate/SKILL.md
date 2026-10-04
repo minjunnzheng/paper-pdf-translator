@@ -1,6 +1,6 @@
 ---
 name: paper-translate
-description: 把英文論文 PDF 翻成台灣繁體中文：保留原版面的 PDF（只有譯文或原文並排），或「左譯文、右原文整頁」並可在網頁右側問 AI 的閱讀頁。使用者要「翻譯這篇論文／這個 PDF」「做中英對照 PDF」「把 Zotero 裡這篇翻成中文」時使用。不用於純文字翻譯、摘要或導讀。
+description: 翻譯論文 PDF（預設英文翻台灣繁中）：保留原版面的 PDF（只有譯文或原文並排），或「左譯文、右原文整頁」並可在網頁右側問 AI 的閱讀頁（閱讀頁另支援簡中、日、韓、德、西、法文）。使用者要「翻譯這篇論文／這個 PDF」「做中英對照 PDF」「把 Zotero 裡這篇翻成中文」時使用。不用於純文字翻譯、摘要或導讀。
 ---
 
 # paper-translate
@@ -12,7 +12,7 @@ description: 把英文論文 PDF 翻成台灣繁體中文：保留原版面的 P
 不必先 clone：
 
 ```sh
-uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.5.1 paper-translate <子指令>
+uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.5.2 paper-translate <子指令>
 ```
 
 第一次會下載約 900 MB 的相依套件。已經 clone 過 repo 的話，在該目錄用 `uv run paper-translate <子指令>`。不確定環境是否就緒時先跑 `doctor`。
