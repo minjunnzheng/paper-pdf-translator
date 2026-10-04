@@ -13,7 +13,7 @@ Translate English research-paper PDFs into Traditional Chinese (Taiwan). The lay
 - With `--review`, it checks each batch against the source text a second time. Mechanical checks then reject a batch if the numbers, formula placeholders or listed terms changed.
 - Each run writes a manifest and a log for each batch, so you can find which batch failed a check.
 
-The output is a translated PDF, or a PDF with source pages and translated pages side by side (`--bilingual`).
+The output is a translated PDF, or a PDF with source pages and translated pages side by side (`--bilingual`). `--format pages` writes a web page instead: each source page as a row, with the translation on the left, the original page as an image beside it, and a question panel on the right that `paper-translate serve` connects to the same engine.
 
 Requirements: macOS (the only tested platform), Python 3.12, [uv](https://docs.astral.sh/uv/), and one translation engine: a local or remote `llama-server`, the [Claude Code CLI](https://claude.com/claude-code), or the [Codex CLI](https://github.com/openai/codex).
 
@@ -48,7 +48,7 @@ The full documentation below is in Chinese. License: AGPL-3.0-or-later.
 - 每段譯文可以再對照原文校對一次，並用機械檢查擋掉改到數字、公式或術語的譯文。
 - 每次執行留下 manifest 與逐批紀錄，事後查得到哪一段沒通過檢查。
 
-輸出有兩種：只有譯文的 PDF，或原文頁與譯文頁左右並排的 PDF。
+輸出有三種：只有譯文的 PDF、原文頁與譯文頁左右並排的 PDF，以及「左譯文、右原文整頁」的網頁（可在網頁右側直接問 AI）。
 
 > 譯文是機器產生的。工具只做機械檢查，不保證翻譯正確；引用或依賴內容前請對照原文。
 
@@ -60,7 +60,7 @@ The full documentation below is in Chinese. License: AGPL-3.0-or-later.
   - 另一台機器上的 `llama-server`，可用 SSH 金鑰登入
   - 已登入訂閱帳號的 [Claude Code CLI](https://claude.com/claude-code)（`claude` 指令）
   - 已登入 ChatGPT 帳號的 [Codex CLI](https://github.com/openai/codex)（`codex` 指令）
-- 使用 `--review` 時需要 ICU 的 `uconv`（`brew install icu4c`），用來把簡體字轉成繁體
+- 使用 `--review` 或 `--format pages` 時需要 ICU 的 `uconv`（`brew install icu4c`），用來把簡體字轉成繁體
 - 想直接從 Zotero 取 PDF 時，Zotero 要開啟本機 API（設定 → 進階 → 允許其他應用程式與 Zotero 通訊）
 
 ## 安裝
@@ -110,6 +110,23 @@ uv run paper-translate run --pdf paper.pdf --pages 1-2 --review --lenient \
 
 這裡的 `--base-url` 是伺服器在那台機器上的 loopback 位址。工具會自己開一條 SSH 通道（本機埠＝遠端埠加 10000），結束時關閉，並透過 SSH 計算模型檔的 SHA-256。遠端只支援 `llama-server`。
 
+### 左譯文、右原文整頁的網頁，加上問答欄
+
+```sh
+uv run paper-translate run --pdf paper.pdf --format pages --engine claude --review
+uv run paper-translate serve <上一步印出的輸出目錄>
+```
+
+`--format pages` 不經排版引擎：用 PyMuPDF 逐段抽出文字翻譯，輸出一個 `translated.html`。每一頁一列，左邊是該頁譯文，中間是原文整頁的圖（圖、表、公式都是原樣），右邊是問答欄。整篇論文約 30 次請求，比 PDF 輸出少很多；代價是左邊譯文沒有原排版，表格會被拆成零碎小段，要對照中間的原文頁看。
+
+直接打開 `translated.html` 可以閱讀，但不能問答。要問答就用 `serve`：它在 `127.0.0.1` 開一個只有本機連得到的小伺服器並打開瀏覽器，問答欄送出的問題由它轉給翻譯時用的引擎（也可用 `--engine` 指定別的）。
+
+- 每個問題會附上當頁的原文與譯文；先點左邊某一段，則再附上那一段；勾「帶全文」則附上整篇。
+- 會附上最近三則問答，方便追問。
+- 問答存在輸出目錄的 `qa.json`，下次 `serve` 還在。
+- 每個問題一次請求；用訂閱引擎時，問題與所附的論文內容會送到該供應商。
+- 伺服器只接受本機連線，API 需要每次啟動時產生的金鑰（已放在開啟的網址裡），按 Ctrl+C 結束。
+
 ### 從 Zotero 取檔
 
 ```sh
@@ -124,6 +141,7 @@ uv run paper-translate run --attachment <PDF 附件代碼> --pages 1-2 --engine 
 
 | 選項 | 作用 |
 |---|---|
+| `--format pages` | 輸出左譯文、右原文整頁的網頁，搭配 `serve` 問答 |
 | `--bilingual` | 輸出原文頁與譯文頁並排的 PDF |
 | `--review` | 每批譯文再對照原文校對一次（請求數加倍） |
 | `--lenient` | 校對沒通過檢查的批次保留初譯，照樣輸出 PDF；`--engine claude` 與 `codex` 一律如此 |

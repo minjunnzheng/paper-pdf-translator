@@ -1,6 +1,6 @@
 ---
 name: paper-translate
-description: 把英文論文 PDF 翻成台灣繁體中文並保留原版面（圖、表、公式留在原位），輸出只有譯文或原文與譯文並排的 PDF。使用者要「翻譯這篇論文／這個 PDF」「做中英對照 PDF」「把 Zotero 裡這篇翻成中文」時使用。不用於純文字翻譯、摘要或導讀。
+description: 把英文論文 PDF 翻成台灣繁體中文：保留原版面的 PDF（只有譯文或原文並排），或「左譯文、右原文整頁」並可在網頁右側問 AI 的閱讀頁。使用者要「翻譯這篇論文／這個 PDF」「做中英對照 PDF」「把 Zotero 裡這篇翻成中文」時使用。不用於純文字翻譯、摘要或導讀。
 ---
 
 # paper-translate
@@ -12,7 +12,7 @@ description: 把英文論文 PDF 翻成台灣繁體中文並保留原版面（�
 不必先 clone：
 
 ```sh
-uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.3.0 paper-translate <子指令>
+uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.4.0 paper-translate <子指令>
 ```
 
 第一次會下載約 900 MB 的相依套件。已經 clone 過 repo 的話，在該目錄用 `uv run paper-translate <子指令>`。不確定環境是否就緒時先跑 `doctor`。
@@ -33,7 +33,7 @@ uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.3.0 paper
 
 1. **先試兩頁。** 除非使用者明說要整篇，先用 `--pages` 跑兩頁有內文的頁面，把成品路徑給使用者看過再翻整篇。
 2. **預設加 `--review`**（每批對照原文校對一次，請求數加倍）。使用者在意額度時可以不加。
-3. 使用者要原文對照就加 `--bilingual`。
+3. 使用者要原文對照：要 PDF 就加 `--bilingual`；要邊讀邊問 AI、或想省額度，就用 `--format pages`（整篇約 30 次請求），完成後用 `paper-translate serve <輸出目錄>` 開啟問答。`serve` 會一直執行到使用者按 Ctrl+C，請用背景執行並把印出的網址給使用者。
 4. 使用者有要保留英文的術語時，請他提供術語檔，用 `--terms` 指定。格式見 repo 的 `terms.example.txt`。不要自己編術語清單。
 5. 來源是 Zotero 時，用 `search`、`attachments` 找到 PDF 附件代碼，再用 `--attachment`。
 

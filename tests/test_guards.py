@@ -266,6 +266,150 @@ class References(unittest.TestCase):
         self.assertIn("Doe", calls[0])
 
 
+class Pages(unittest.TestCase):
+    def make_job(self, folder: str) -> Path:
+        import fitz
+
+        document = fitz.open()
+        first = document.new_page()
+        first.insert_text(
+            (72, 120), "The ratio fell steadily as the sample was heated."
+        )
+        second = document.new_page()
+        second.insert_text((72, 120), BODY)
+        second.insert_text((72, 200), "References")
+        second.insert_text((72, 230), CITED)
+        source = Path(folder) / "paper.pdf"
+        document.save(source)
+        paragraphs, skipped, heading = pt.pdf_paragraphs(source, [1, 2], True)
+        self.assertEqual(heading, 2)
+        self.assertIn("references", [s["reason"] for s in skipped])
+        self.assertFalse(any("Doe" in p["source"] for p in paragraphs))
+        for row in paragraphs:
+            row.update(output="譯文<b>&", checks="passed")
+        job = Path(folder) / "job"
+        job.mkdir()
+        page = pt.page_pair_html(
+            "t <x>",
+            paragraphs,
+            pt.page_images(source, [1, 2]),
+            heading,
+            [("k", "v & w")],
+        )
+        (job / "translated.html").write_text(page)
+        (job / "review.json").write_text(json.dumps(paragraphs, ensure_ascii=False))
+        (job / "manifest.json").write_text(
+            json.dumps({"source": str(source), "selected_source_pages": [1, 2]})
+        )
+        return job
+
+    def test_page_html(self):
+        with tempfile.TemporaryDirectory() as folder:
+            page = (self.make_job(folder) / "translated.html").read_text()
+        self.assertEqual(page.count('<section class="page"'), 2)
+        self.assertEqual(page.count("data:image/jpeg;base64,"), 2)
+        self.assertIn("譯文&lt;b&gt;&amp;", page)
+        self.assertIn("t &lt;x&gt;", page)
+        self.assertIn("參考文獻保留原文", page)
+        self.assertNotIn("http://", page.split("<script>")[0])
+
+    def test_reply_with_trailing_remark(self):
+        reply = '[{"id": 3, "output": "譯文"}]\n\nNote: kept the units.'
+        self.assertEqual(pt.parse_rows(reply, [3]), {3: "譯文"})
+        with self.assertRaises(ValueError):
+            pt.parse_rows("no array here", [3])
+
+    def test_paragraph_batch(self):
+        rows = [
+            {"id": 0, "source": "It was 5 units."},
+            {"id": 1, "source": "It was 6."},
+        ]
+
+        def chat(system, user):
+            data = json.loads(user)
+            items = data if isinstance(data, list) else data["draft"]
+            return json.dumps(
+                [
+                    {
+                        "id": r["id"],
+                        "output": "結果是 " + ("5" if r["id"] == 0 else "7") + "。",
+                    }
+                    for r in items
+                ]
+            )
+
+        try:
+            pt.uconv()
+        except RuntimeError:
+            self.skipTest("ICU uconv is not installed")
+        pt.translate_paragraphs(rows, chat, True)
+        self.assertEqual(rows[0]["checks"], "passed")
+        self.assertTrue(rows[1]["checks"].startswith("failed"))
+
+    def test_server(self):
+        import threading
+        import urllib.error
+        import urllib.request
+
+        asked = []
+
+        def chat(system, user):
+            asked.append(user)
+            return "回答。依據：第 2 頁"
+
+        with tempfile.TemporaryDirectory() as folder:
+            job = self.make_job(folder)
+            server, token = pt.qa_server(
+                job, chat, {"provider": "test", "model": "m"}, 0
+            )
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+
+            def call(path, body=None, token_value=token, host=None):
+                headers = {"Content-Type": "application/json", "X-Token": token_value}
+                if host:
+                    headers["Host"] = host
+                request = urllib.request.Request(
+                    base + path,
+                    json.dumps(body).encode() if body is not None else None,
+                    headers,
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=10) as reply:
+                        return reply.status, reply.read()
+                except urllib.error.HTTPError as error:
+                    return error.code, error.read()
+
+            try:
+                self.assertEqual(call("/")[0], 200)
+                self.assertEqual(call("/", host="evil.example:80")[0], 403)
+                self.assertEqual(call("/api/qa?t=wrong")[0], 403)
+                self.assertEqual(call("/api/ask", {"question": "?"}, "wrong")[0], 403)
+                status, body = call(
+                    "/api/ask", {"question": "這段在講什麼？", "page": 2}
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["answer"], "回答。依據：第 2 頁")
+                self.assertIn("第 2 頁原文", asked[0])
+                self.assertNotIn("第 1 頁原文", asked[0])
+                status, _ = call(
+                    "/api/ask", {"question": "全文呢？", "page": 2, "full": True}
+                )
+                self.assertIn("第 1 頁原文", asked[1])
+                self.assertIn("先前的問答", asked[1])
+                self.assertEqual(call("/api/ask", {"question": "", "page": 2})[0], 400)
+                self.assertEqual(call("/api/ask", {"question": "?", "page": 9})[0], 400)
+                status, body = call(f"/api/qa?t={token}")
+                self.assertEqual(
+                    [e["question"] for e in json.loads(body)],
+                    ["這段在講什麼？", "全文呢？"],
+                )
+                self.assertEqual(len(json.loads((job / "qa.json").read_text())), 2)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+
 class Plugin(unittest.TestCase):
     root = Path(__file__).resolve().parent.parent
 
