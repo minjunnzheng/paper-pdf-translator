@@ -278,13 +278,46 @@ def untranslated(source: str, output: str, target_lang: str) -> bool:
     )
 
 
+# English number words that Japanese and Korean usually write as digits.
+ORDINALS = {
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "first": "1",
+    "second": "2",
+    "third": "3",
+    "fourth": "4",
+    "fifth": "5",
+    "sixth": "6",
+    "seventh": "7",
+    "eighth": "8",
+    "ninth": "9",
+    "tenth": "10",
+}
+
+
 def validate_revision(
     source: str, revised: str, source_lang: str = "en", target_lang: str = "zh-TW"
 ) -> None:
     protected = r"\{v\d+\}|</?style(?:\s[^>]+)?>|\d+(?:[.,]\d+)?"
-    if Counter(re.findall(protected, source)) != Counter(
-        re.findall(protected, revised)
-    ):
+    expected = Counter(re.findall(protected, source))
+    actual = Counter(re.findall(protected, revised))
+    extra = actual - expected
+    if source_lang == "en":
+        # Japanese and Korean write number words with digits (first-order -> 1次,
+        # two studies -> 2つの研究). Several words share a digit, so add them up.
+        allowed = Counter()
+        for word, digit in ORDINALS.items():
+            allowed[digit] += len(re.findall(rf"\b{word}\b", source, re.IGNORECASE))
+        extra -= allowed
+    if expected - actual or extra:
         raise ValueError("Review changed numbers, tags or formula placeholders")
     plain_source = re.sub(r"<[^>]+>", "", source)
     plain_revised = re.sub(r"<[^>]+>", "", revised)

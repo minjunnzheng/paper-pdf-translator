@@ -80,6 +80,32 @@ class Guards(unittest.TestCase):
             pt.validate_revision("The enzyme is active.", "這種酵素具有活性。")
         pt.validate_revision("The enzyme is active.", "enzyme 具有活性。")
 
+    def test_ordinals_written_as_digits(self):
+        source = "The first-order and second-order regions differ."
+        pt.validate_revision(source, "1차 영역과 2차 영역은 다르다.", "en", "ko")
+        pt.validate_revision(source, "1次領域と2次領域は異なる。", "en", "ja")
+        pt.validate_revision(
+            "The two previous studies agree.", "2つの先行研究は一致する。", "en", "ja"
+        )
+        for revised in (
+            "1차 영역과 3차 영역은 다르다.",
+            "1차와 1차와 2차 영역은 다르다.",
+        ):
+            with self.assertRaises(ValueError):
+                pt.validate_revision(source, revised, "en", "ko")
+        pt.validate_revision(  # one word each for 1 and 2, counted together
+            "One sample showed the first and second peaks.",
+            "1つの試料は1番目と2番目のピークを示した。",
+            "en",
+            "ja",
+        )
+        with self.assertRaises(ValueError):  # a number in the source must still survive
+            pt.validate_revision("The first 350 samples.", "1번째 샘플.", "en", "ko")
+        with self.assertRaises(ValueError):  # only English ordinal words are recognised
+            pt.validate_revision(
+                "Die erste Probe war rot.", "1번째 샘플은 붉었다.", "de", "ko"
+            )
+
     def test_rejects_listed_rendering(self):
         terms("enzyme | 酵母\n")
         with self.assertRaises(ValueError):

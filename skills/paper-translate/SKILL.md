@@ -12,7 +12,7 @@ description: 把英文論文 PDF 翻成台灣繁體中文：保留原版面的 P
 不必先 clone：
 
 ```sh
-uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.5.0 paper-translate <子指令>
+uvx --from git+https://github.com/minjunnzheng/paper-pdf-translator@v0.5.1 paper-translate <子指令>
 ```
 
 第一次會下載約 900 MB 的相依套件。已經 clone 過 repo 的話，在該目錄用 `uv run paper-translate <子指令>`。不確定環境是否就緒時先跑 `doctor`。
